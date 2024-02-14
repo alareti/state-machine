@@ -5,19 +5,33 @@ const drive = (driver) => (event) => {
   driver.transmit({ view: event });
 };
 
+class Receiver {
+  constructor(captureFunction) {
+    this.captureFunction = captureFunction;
+  }
+
+  capture(data) {
+    this.captureFunction(data);
+  }
+}
+
 class Driver {
   constructor() {
     this.receivers = [];
   }
 
-  transmit(data) {
-    this.receivers.forEach((receive) => {
-      receive(data);
-    });
+  addReceiver(receiver) {
+    this.receivers.push(receiver);
   }
 
-  attachReceiver(receive) {
-    this.receivers.push(receive);
+  transmit(data) {
+    this.receivers.forEach((receiver) => receiver(data));
+  }
+}
+
+class Pipe {
+  constructor(driver, receiver) {
+    driver.addReceiver((data) => receiver.capture(data));
   }
 }
 
@@ -101,10 +115,10 @@ class Component {
     const viewDriver = this.view.getDriver();
     const controllerDriver = this.controller.getDriver();
 
-    viewDriver.attachReceiver(this.controller.receive);
-    controllerDriver.attachReceiver(this.view.receive);
+    viewDriver.addReceiver(this.controller.receive);
+    controllerDriver.addReceiver(this.view.receive);
 
-    controllerDriver.attachReceiver(this.forward);
+    controllerDriver.addReceiver(this.forward);
     this.reset();
   }
 
