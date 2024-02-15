@@ -1,1 +1,1 @@
-import { StateMachine } from "./stateMachine";
+import { StateMachine } from "./component";
