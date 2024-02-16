@@ -40,22 +40,82 @@ interface Connectable<I, O> {
   getDriver: () => Driver<O>;
 }
 
-interface Peripheral<S, I, O> {
-  combinator: (state: S, input: O) => I;
-  block: Connectable<I, O>;
+function pipe<T>(driver: Driver<T>, receiver: Receiver<T>) {
+  driver.addReceiver(receiver);
 }
 
-class Component<S> {
+class Component<I, O, S> implements Connectable<I, O> {
   private _stateMachine: StateMachine<S, ImmutableMap>;
+  private _stateMachineDrivers: Driver<any>[];
+  private _stateMachineReceivers: Receiver<any>[];
+  private _peripherals: Peripheral<S, any, any>[];
 
-  constructor(
-    initialState: S,
-    nextState: (state: S, input: ImmutableMap) => S,
-    peripherals: Peripheral<S, any, any>[]
-  ) {
+  externalDriver: Driver<O>;
+  externalReceiver: Receiver<I>;
+
+  constructor({
+    initialState = {} as S,
+    nextState = (state, input) => state,
+    output = (state) => ({} as O),
+    peripherals = [],
+  }: {
+    initialState?: S;
+    nextState?: (state: S, input: ImmutableMap) => S;
+    output?: (state: S) => O;
+    peripherals?: Peripheral<S, any, any>[];
+  }) {
     this._stateMachine = new StateMachine(initialState, nextState);
-    this._stateMachine.reset();
+
+    // Add peripherals to component
+    this._peripherals = peripherals;
+
+    // Connect state machine driver to peripheral receivers
+    this._stateMachineDrivers = [];
+    this._peripherals.forEach((peripheral) => {
+      const receiver = peripheral.block.getReceiver();
+      const driver = new Driver(() =>
+        peripheral.generateModel(this._stateMachine.state)
+      );
+      pipe(driver, receiver);
+      this._stateMachineDrivers.push(driver);
+    });
+
+    // Connect peripheral drivers to state machine receiver
+    this._stateMachineReceivers = [];
+    this._peripherals.forEach((peripheral) => {
+      const peripheralDriver = peripheral.block.getDriver();
+      const stateMachineReceiver = new Receiver((data: any) => {
+        this._stateMachine.trigger(
+          Map<string, any>({ source: peripheral.name, data: data })
+        );
+        this._stateMachineDrivers.forEach((driver) => driver.transmit());
+        this.externalDriver.transmit();
+      });
+      pipe(peripheralDriver, stateMachineReceiver);
+      this._stateMachineReceivers.push(stateMachineReceiver);
+    });
+
+    // Make external connections
+    this.externalDriver = new Driver(() => output(this._stateMachine.state));
+    this.externalReceiver = new Receiver((data: I) => {
+      this._stateMachine.trigger(
+        Map<string, any>({ source: "__external__", data: data })
+      );
+      this._stateMachineDrivers.forEach((driver) => driver.transmit());
+      this.externalDriver.transmit();
+    });
+
+    this.reset();
   }
+
+  reset = () => {
+    this._stateMachine.reset();
+    this._stateMachineDrivers.forEach((driver) => driver.transmit());
+    this.externalDriver.transmit();
+  };
+
+  getReceiver = () => this.externalReceiver;
+  getDriver = () => this.externalDriver;
 }
 
 class StateMachine<S, I> {
@@ -78,7 +138,27 @@ class StateMachine<S, I> {
   trigger = (input: I): void => {
     this.input = input;
     this.state = this._nextState(this.state, input);
+    this.input = undefined;
   };
+}
+
+class Peripheral<I, O, S> implements Connectable<I, O> {
+  name: string;
+  block: Connectable<I, O>;
+  generateModel: (state: S) => I;
+
+  constructor(
+    name: string,
+    block: Connectable<I, O>,
+    generateModel: (state: S) => I
+  ) {
+    this.name = name;
+    this.block = block;
+    this.generateModel = generateModel;
+  }
+
+  getReceiver = () => this.block.getReceiver();
+  getDriver = () => this.block.getDriver();
 }
 
 class ViewPeripheral<I, O> implements Connectable<I, O> {
@@ -112,17 +192,16 @@ class ViewPeripheral<I, O> implements Connectable<I, O> {
   getDriver = () => this.driver;
 }
 
-// const stateMachine = new StateMachine(null, (state, input: Event) => {
-//   return state;
-// });
+function newComponent() {}
 
-// const template = (input: any, d: Directive<Event>) => {
-//   return html`<button @click=${d} @wheel=${d}>My Button</button>`;
-// };
+// Example usage
+const view = new ViewPeripheral((input, d) => {
+  return html`<button @click=${d} @wheel=${d}>My Button</button>`;
+}, document.body);
 
-// const view = new View(template, document.body);
-
-// connectSimplex(stateMachine.getDriver(), view.getReceiver());
-// connectSimplex(view.getDriver(), stateMachine.getReceiver());
-
-// stateMachine.reset();
+const component = new Component({
+  nextState: (state, input) => {
+    console.log(input.toString());
+  },
+  peripherals: [new Peripheral("ViewPeripheral", view, (state) => state)],
+});
