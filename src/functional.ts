@@ -85,7 +85,6 @@ class StateMachine {
   }
 
   reset = () => {
-    console.log("resetting");
     this.state = this._resetState();
   };
 
@@ -98,8 +97,10 @@ class StateMachine {
 
 // useInit needs to create a Component Factory, stored in a global registry
 // that can be used to create a new component instance. The function itself
-// is the key as it is unique, even among different components with the same name.
+// is the key as it is unique, even among different functionals with the same name.
 const useInit = (fn: Functional, initialState: any) => {
+  if (__ALARETI_GLOBAL_COMPONENT_FACTORY_REGISTRY__.has(fn)) return;
+
   const componentName = fn.name;
   const componentStateMachine = new StateMachine(initialState, fn);
 
@@ -120,22 +121,42 @@ const useOutput = (fn: Functional, name: string, output: StateInterpreter) => {
   outputMap.set(name, output);
 };
 
-const reset = (fn: Functional) => {
-  const registryEntry = __ALARETI_GLOBAL_COMPONENT_FACTORY_REGISTRY__.get(fn);
-  if (!registryEntry) return;
+const useComponent = (fn: Functional) => {
+  if (!__ALARETI_GLOBAL_COMPONENT_FACTORY_REGISTRY__.has(fn)) {
+    fn({ source: "__registry__", data: "registering" }, undefined);
+  }
 
-  const rootComponent = registryEntry["base"]();
+  const registryEntry = __ALARETI_GLOBAL_COMPONENT_FACTORY_REGISTRY__.get(fn);
+  if (!registryEntry) return null;
+
+  const component = registryEntry["base"]();
   registryEntry["outputs"].forEach((output, name) => {
-    rootComponent.addOutput(name, output);
+    component.addOutput(name, output);
   });
 
-  rootComponent.reset();
+  return component;
+};
+
+const regGuard = (
+  input: Record<string, any> | undefined,
+  regLogic: () => void
+) => {
+  if (!input) return;
+  if (input["source"] == "__registry__" && input["data"] == "registering") {
+    regLogic();
+  }
 };
 
 // Example usage
-function MyComponent(input: any, currentState: boolean) {
+function MyComponent(
+  input: Record<string, any>,
+  currentState: boolean | undefined
+) {
   useInit(MyComponent, false);
   useOutput(MyComponent, "output", (state) => state);
 
   return !currentState;
 }
+
+const myComponent = useComponent(MyComponent);
+console.log("Component:", myComponent);
