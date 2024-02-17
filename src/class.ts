@@ -74,7 +74,7 @@ class Component<I, O, S> implements Connectable<I, O> {
     this._peripherals.forEach((peripheral) => {
       const receiver = peripheral.block.getReceiver();
       const driver = new Driver(() =>
-        peripheral.generateModel(this._stateMachine.state)
+        peripheral.interpret(this._stateMachine.state)
       );
       pipe(driver, receiver);
       this._stateMachineDrivers.push(driver);
@@ -118,7 +118,7 @@ class Component<I, O, S> implements Connectable<I, O> {
   getDriver = () => this.externalDriver;
 }
 
-class StateMachine<S, I> {
+export class StateMachine<S, I> {
   private _resetState: () => S;
   private _nextState: (state: S, input: I) => S;
 
@@ -145,16 +145,16 @@ class StateMachine<S, I> {
 class Peripheral<I, O, S> implements Connectable<I, O> {
   name: string;
   block: Connectable<I, O>;
-  generateModel: (state: S) => I;
+  interpret: (state: S) => I;
 
   constructor(
     name: string,
     block: Connectable<I, O>,
-    generateModel: (state: S) => I
+    interpret: (state: S) => I
   ) {
     this.name = name;
     this.block = block;
-    this.generateModel = generateModel;
+    this.interpret = interpret;
   }
 
   getReceiver = () => this.block.getReceiver();
@@ -192,16 +192,14 @@ class ViewPeripheral<I, O> implements Connectable<I, O> {
   getDriver = () => this.driver;
 }
 
-function newComponent() {}
+// // Example usage
+// const view = new ViewPeripheral((input, d) => {
+//   return html`<button @click=${d} @wheel=${d}>My Button</button>`;
+// }, document.body);
 
-// Example usage
-const view = new ViewPeripheral((input, d) => {
-  return html`<button @click=${d} @wheel=${d}>My Button</button>`;
-}, document.body);
-
-const component = new Component({
-  nextState: (state, input) => {
-    console.log(input.toString());
-  },
-  peripherals: [new Peripheral("ViewPeripheral", view, (state) => state)],
-});
+// const component = new Component({
+//   nextState: (state, input) => {
+//     console.log(input.toString());
+//   },
+//   peripherals: [new Peripheral("ViewPeripheral", view, (state) => state)],
+// });
