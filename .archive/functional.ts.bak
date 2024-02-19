@@ -3,14 +3,19 @@ const __ALARETI_GLOBAL_COMPONENT_FACTORY_REGISTRY__ = new Map<
   { base: () => Component; outputs: Map<string, StateInterpreter> }
 >();
 
-type Functional = (input: any, state: any) => any;
-type StateInterpreter = (state: any) => any;
+type DeepRecord = {
+  [key: string]: boolean | number | string | undefined | DeepRecord;
+};
+
+type Functional = (input: DeepRecord, state: DeepRecord) => DeepRecord;
+
+type StateInterpreter = (state: DeepRecord) => DeepRecord;
 
 class Driver {
   receivers: Receiver[];
-  dataFactory: () => any;
+  dataFactory: () => DeepRecord;
 
-  constructor(dataFactory: () => any) {
+  constructor(dataFactory: () => DeepRecord) {
     this.receivers = [];
     this.dataFactory = dataFactory;
   }
@@ -25,13 +30,13 @@ class Driver {
 }
 
 class Receiver {
-  captureFunction: (data: any) => void;
+  captureFunction: (data: DeepRecord) => void;
 
-  constructor(captureFunction: (data: any) => void) {
+  constructor(captureFunction: (data: DeepRecord) => void) {
     this.captureFunction = captureFunction;
   }
 
-  capture(data: any): void {
+  capture(data: DeepRecord): void {
     this.captureFunction(data);
   }
 }
@@ -72,13 +77,16 @@ class Component {
 }
 
 class StateMachine {
-  private _resetState: () => any;
-  private _nextState: (state: any, input: any) => any;
+  private _resetState: () => DeepRecord;
+  private _nextState: (state: DeepRecord, input: DeepRecord) => DeepRecord;
 
-  state: any;
-  input: any | undefined;
+  state: DeepRecord;
+  input: DeepRecord | undefined;
 
-  constructor(initialState: any, nextState: (state: any, input: any) => any) {
+  constructor(
+    initialState: DeepRecord,
+    nextState: (state: DeepRecord, input: DeepRecord) => DeepRecord
+  ) {
     this._resetState = () => initialState;
     this._nextState = nextState;
     this.state = this._resetState();
@@ -88,7 +96,7 @@ class StateMachine {
     this.state = this._resetState();
   };
 
-  trigger = (input: any): void => {
+  trigger = (input: DeepRecord): void => {
     this.input = input;
     this.state = this._nextState(this.state, input);
     this.input = undefined;
@@ -98,7 +106,7 @@ class StateMachine {
 // useInit needs to create a Component Factory, stored in a global registry
 // that can be used to create a new component instance. The function itself
 // is the key as it is unique, even among different functionals with the same name.
-const useInit = (fn: Functional, initialState: any) => {
+const useInit = (fn: Functional, initialState: DeepRecord) => {
   if (__ALARETI_GLOBAL_COMPONENT_FACTORY_REGISTRY__.has(fn)) return;
 
   const componentName = fn.name;
@@ -118,18 +126,20 @@ const useOutput = (fn: Functional, name: string, output: StateInterpreter) => {
   if (!registryEntry) return;
 
   const outputMap = registryEntry["outputs"];
+  if (outputMap.has(name)) return;
+
   outputMap.set(name, output);
 };
 
 const useComponent = (fn: Functional) => {
   if (!__ALARETI_GLOBAL_COMPONENT_FACTORY_REGISTRY__.has(fn)) {
-    fn({ source: "__registry__", data: "registering" }, undefined);
+    fn({ source: "__registry__", data: "registering" }, {});
   }
 
   const registryEntry = __ALARETI_GLOBAL_COMPONENT_FACTORY_REGISTRY__.get(fn);
-  if (!registryEntry) return null;
+  const component = registryEntry?.base() ?? undefined;
+  if (component === undefined || registryEntry === undefined) return undefined;
 
-  const component = registryEntry["base"]();
   registryEntry["outputs"].forEach((output, name) => {
     component.addOutput(name, output);
   });
@@ -137,10 +147,7 @@ const useComponent = (fn: Functional) => {
   return component;
 };
 
-const regGuard = (
-  input: Record<string, any> | undefined,
-  regLogic: () => void
-) => {
+const regGuard = (input: DeepRecord | undefined, regLogic: () => void) => {
   if (!input) return;
   if (input["source"] == "__registry__" && input["data"] == "registering") {
     regLogic();
@@ -148,14 +155,11 @@ const regGuard = (
 };
 
 // Example usage
-function MyComponent(
-  input: Record<string, any>,
-  currentState: boolean | undefined
-) {
-  useInit(MyComponent, false);
+function MyComponent(input: DeepRecord, currentState: DeepRecord) {
+  useInit(MyComponent, { isToggled: false });
   useOutput(MyComponent, "output", (state) => state);
 
-  return !currentState;
+  return { isToggled: !currentState.isToggled };
 }
 
 const myComponent = useComponent(MyComponent);
